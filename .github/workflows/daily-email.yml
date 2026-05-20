@@ -1,0 +1,39 @@
+name: Daily Financial Charts Email
+
+# When this runs:
+#   GitHub's scheduler uses UTC time and does not know about Israel's
+#   summer/winter clock change. So we trigger at TWO UTC times, and the
+#   script itself only sends the email during the 10 o'clock hour in Israel.
+#     07:00 UTC = 10:00 Israel during summer (IDT)
+#     08:00 UTC = 10:00 Israel during winter (IST)
+#   You can also run it any time with the manual "Run workflow" button.
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  send-charts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install libraries
+        run: pip install -r requirements.txt
+
+      - name: Generate charts and send email
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT: ${{ secrets.RECIPIENT }}
+          # A manual run always sends, skipping the 10am Israel time check.
+          FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python daily_charts.py
