@@ -10,19 +10,28 @@ with the charts shown directly inside the email body.
 
 Designed to run automatically once a day via GitHub Actions.
 
-How it decides whether to send
-------------------------------
-GitHub's scheduler only understands UTC time and does not know about Israel's
-summer/winter clock change. To always land at 10:00 Israel time, the workflow
-triggers at two UTC times and this script only continues if it is currently
-the 10 o'clock hour in Israel. (A manual run always sends.)
+How it decides whether to send (self-healing)
+----------------------------------------------
+GitHub's free scheduler is not punctual - it often runs jobs late, and can
+skip a run entirely. So instead of demanding an exact time, the workflow
+triggers several times each morning and this script sends the email on the
+FIRST run that meets both of these conditions:
+
+  * it is 10:00 or later in Israel, and
+  * no email has been sent yet today.
+
+The "already sent today" memory is a small file (last_sent.txt) kept in the
+repository. This means: if the 10am run is late or skipped, a later run
+simply catches up - and you still get exactly one email per day.
+
+A manual run always sends immediately and does not touch that memory file.
 
 Environment variables (set as GitHub Secrets)
 ---------------------------------------------
   GMAIL_ADDRESS       - the Gmail address that sends the email
   GMAIL_APP_PASSWORD  - a 16-character Gmail "app password" (NOT your login password)
   RECIPIENT           - where to send it (optional; defaults to dscrist7@gmail.com)
-  FORCE_SEND          - "1" to skip the time check (set automatically on manual runs)
+  FORCE_SEND          - "1" to skip all checks (set automatically on manual runs)
 """
 
 import os
@@ -236,18 +245,41 @@ def build_and_send_email(results, sender, password, recipient):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
+SEND_HOUR_IL = 10                 # send at 10:00 Israel time or later
+STATE_FILE = "last_sent.txt"      # remembers the date of the last email sent
+
+
+def _israel_now():
+    tz = ZoneInfo("Asia/Jerusalem") if ZoneInfo is not None else None
+    return datetime.now(tz)
+
+
+def _already_sent_today(today_str):
+    try:
+        with open(STATE_FILE) as f:
+            return f.read().strip() == today_str
+    except FileNotFoundError:
+        return False
+
+
 def main():
     sender = os.environ.get("GMAIL_ADDRESS")
     password = os.environ.get("GMAIL_APP_PASSWORD")
     recipient = os.environ.get("RECIPIENT", "dscrist7@gmail.com")
     force_send = os.environ.get("FORCE_SEND") == "1"
 
-    # Only continue if it is the 10 o'clock hour in Israel (unless forced).
-    if not force_send and ZoneInfo is not None:
-        hour_il = datetime.now(ZoneInfo("Asia/Jerusalem")).hour
-        if hour_il != 10:
-            print(f"Not 10am in Israel (currently {hour_il}:00) - exiting without sending.")
+    now_il = _israel_now()
+    today_str = now_il.strftime("%Y-%m-%d")
+
+    # Decide whether to send now (a manual run skips all of these checks).
+    if not force_send:
+        if _already_sent_today(today_str):
+            print(f"Email already sent today ({today_str}) - nothing to do.")
             return
+        if now_il.hour < SEND_HOUR_IL:
+            print(f"Too early in Israel (currently {now_il:%H:%M}) - will try again later.")
+            return
+        print(f"It is {now_il:%H:%M} in Israel and no email sent yet today - sending now.")
 
     # Generate each chart; one failing must not stop the others.
     results = []
@@ -269,6 +301,13 @@ def main():
         return
 
     build_and_send_email(results, sender, password, recipient)
+
+    # Record today's date so later runs today don't send a second email.
+    # (A manual/forced run does not write this, so it can't block the real run.)
+    if not force_send:
+        with open(STATE_FILE, "w") as f:
+            f.write(today_str)
+        print(f"Recorded send date: {today_str}")
 
 
 if __name__ == "__main__":
