@@ -188,11 +188,62 @@ def chart_rolling_10y_beta(out_path="rolling_beta_261d_spx_10y.png"):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Chart 3 - 21-Day Rolling Beta of SPX vs 10-Year Yield Changes (short-term view)
+# ─────────────────────────────────────────────────────────────────────────────
+def chart_rolling_10y_beta_21d(out_path="rolling_beta_21d_spx_10y.png"):
+    START_DATE = "2023-01-01"    # short-term window - a 21-day beta over 60 years is unreadable
+    WINDOW = 21
+
+    spx = _close_series("^GSPC", start=START_DATE)
+    tnx = _close_series("^TNX", start=START_DATE)
+
+    df = pd.DataFrame({"SPX": spx, "Yield10Y": tnx}).sort_index().dropna()
+    df["SPX_ret"] = df["SPX"].pct_change() * 100
+    df["Yield_chg"] = df["Yield10Y"].diff()
+    df = df.dropna()
+
+    roll_cov = df["Yield_chg"].rolling(WINDOW).cov(df["SPX_ret"])
+    roll_var = df["Yield_chg"].rolling(WINDOW).var()
+    df["Beta"] = roll_cov / roll_var
+    df_plot = df.dropna(subset=["Beta"])
+
+    fig, ax = plt.subplots(figsize=(19, 5))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    ax.plot(df_plot.index, df_plot["Beta"], color="#E69F00", linewidth=1.2, zorder=3)
+    ax.axhline(0, color="#AAAAAA", linewidth=0.8, linestyle="-", zorder=2)
+    ax.grid(True, color="#DDDDDD", linewidth=0.6, linestyle=":", zorder=1)
+    ax.set_axisbelow(True)
+    for spine in ax.spines.values():
+        spine.set_color("#CCCCCC")
+
+    ax.tick_params(colors="#222222", labelsize=9)
+    ax.set_ylabel("Beta", color="#222222", fontsize=10)
+    ax.set_xlabel("Date", color="#222222", fontsize=10, labelpad=6)
+    ax.set_title("21-Day Rolling Beta of SPX vs 10-Year Yield Changes",
+                 color="#222222", fontsize=12, pad=10)
+
+    # Short horizon - use quarterly ticks so the axis stays readable.
+    ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=[1, 4, 7, 10]))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=0, ha="center", color="#222222")
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=120, facecolor="white", bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Email
 # ─────────────────────────────────────────────────────────────────────────────
 CHARTS = [
     ("Rolling SPX/VIX Beta", chart_rolling_vix_beta, "chart1"),
-    ("261-Day Rolling Beta: SPX vs 10-Year Yield", chart_rolling_10y_beta, "chart2"),
+    ("261-Day Rolling Beta: SPX vs 10-Year Yield (long-term)",
+     chart_rolling_10y_beta, "chart2"),
+    ("21-Day Rolling Beta: SPX vs 10-Year Yield (short-term)",
+     chart_rolling_10y_beta_21d, "chart3"),
 ]
 
 
